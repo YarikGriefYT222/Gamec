@@ -596,7 +596,7 @@
         
         save(); render();
 
-        const track = document.getElementById('rouette-track');
+        const track = document.getElementById('roulette-track');
         const page = document.getElementById('roulette-page');
         const winScreen = document.getElementById('win-screen');
         
@@ -742,7 +742,7 @@
         save(); render();
     }
 
-    // --- Система Трейда (Обновленная) ---
+    // --- Система Трейда ---
 
     function openTradeModal() {
         tradeSelectedItems = { 
@@ -763,7 +763,6 @@
             const data = snap.val();
             if(!data) return notify("Игрок не найден!", 'system');
 
-            // Отрисовка своего инвентаря
             const myInv = document.getElementById('trade-my-inv');
             myInv.innerHTML = state.drones.map((d, i) => d.status === 'idle' ? `
                 <div class="card trade-item-select" onclick="toggleTradeItem('my', 'drone', ${i}, this)">
@@ -773,7 +772,6 @@
                 <div class="card">Ключи: <input type="number" style="width:50px" onchange="tradeSelectedItems.my.keys=parseInt(this.value)" value="0" min="0" max="${state.inventory.keys}"></div>
             `;
 
-            // Отрисовка чужого инвентаря
             const targetInv = document.getElementById('trade-target-inv');
             targetInv.innerHTML = (data.drones || []).map((d, i) => `
                 <div class="card trade-item-select" onclick="toggleTradeItem('target', 'drone', ${i}, this)">
@@ -801,8 +799,6 @@
 
     function sendTradeOffer() {
         const targetId = document.getElementById('trade-target-id').value;
-        
-        // Блокируем СВОИ вещи
         tradeSelectedItems.my.drones.forEach(i => state.drones[i].status = 'trade');
         state.inventory.cases -= tradeSelectedItems.my.cases;
         state.inventory.keys -= tradeSelectedItems.my.keys;
@@ -872,38 +868,25 @@
         db.ref('trades/' + key).once('value').then(snap => {
             const t = snap.val();
             if(!t || t.status !== 'pending') return;
-
-            // Проверяем, есть ли еще у получателя то, что просят
             let canTrade = true;
             if(state.inventory.cases < t.request.cases || state.inventory.keys < t.request.keys) canTrade = false;
-            
             if(!canTrade) return notify("У вас уже нет нужных предметов!", 'system');
-
-            // 1. Забираем у текущего игрока (получателя трейда)
             const requestedDrones = [];
-            // Сортируем индексы с конца, чтобы не сбить порядок при splice
             t.request.drones_indices.sort((a,b)=>b-a).forEach(idx => {
                 requestedDrones.push(state.drones[idx]);
                 state.drones.splice(idx, 1);
             });
             state.inventory.cases -= t.request.cases;
             state.inventory.keys -= t.request.keys;
-
-            // 2. Добавляем текущему игроку то, что прислали
             t.offer.drones.forEach(d => { d.status = 'idle'; state.drones.push(d); });
             state.inventory.cases += t.offer.cases;
             state.inventory.keys += t.offer.keys;
-
-            // 3. Отправляем "забранные" вещи отправителю через БД
             db.ref('users/' + t.from).once('value').then(uSnap => {
                 const userData = uSnap.val();
-                // Возвращаем заблокированные дроны отправителя (меняем статус)
                 userData.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
-                // Добавляем новые дроны от получателя
                 requestedDrones.forEach(rd => { rd.status = 'idle'; userData.drones.push(rd); });
                 userData.inventory.cases += t.request.cases;
                 userData.inventory.keys += t.request.keys;
-
                 db.ref('users/' + t.from).update(userData);
                 db.ref('trades/' + key).update({ status: 'accepted' });
                 save(); render();
@@ -915,7 +898,6 @@
     function declineTrade(key) {
         db.ref('trades/' + key).once('value').then(snap => {
             const t = snap.val();
-            // Возвращаем вещи отправителю
             db.ref('users/' + t.from).once('value').then(uSnap => {
                 const userData = uSnap.val();
                 userData.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
@@ -929,12 +911,7 @@
     }
 
     function cancelTrade(key) { declineTrade(key); }
-
-    function closeTradeModal() {
-        document.getElementById('trade-modal').style.display = 'none';
-    }
-
-    // --- Конец системы трейда ---
+    function closeTradeModal() { document.getElementById('trade-modal').style.display = 'none'; }
 
     function triggerSingularity() {
         const cost = 1000000;
@@ -962,10 +939,7 @@
         if (p === 'hangar') navItems[1].classList.add('active');
         if (p === 'bp') navItems[2].classList.add('active');
         if (p === 'shop') navItems[3].classList.add('active');
-        if (p === 'custom-market') {
-            navItems[4].classList.add('active');
-            switchMarket('mkt');
-        }
+        if (p === 'custom-market') { navItems[4].classList.add('active'); switchMarket('mkt'); }
     }
 
     function render() {
@@ -1011,6 +985,7 @@
             </div>
         `).join('');
 
+        // Исправлено: добавление отрисовки кейсов в Ангаре
         document.getElementById('cases-area').innerHTML = `
             <div class="card">
                 <div style="display:flex; align-items:center; gap:15px"><div class="item-preview">${getCaseSVG()}</div><div style="flex-grow:1"><b>Базовый кейс</b><br><small>В наличии: ${state.inventory.cases}</small></div></div>
