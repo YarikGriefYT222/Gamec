@@ -86,6 +86,7 @@
         .trade-badge { background: var(--accent); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.6rem; position: absolute; top: 5px; right: 5px; }
         .trade-item-select { cursor: pointer; border: 2px solid transparent; }
         .trade-item-select.selected { border-color: var(--primary); background: rgba(78, 204, 163, 0.1); }
+        .trade-sub { font-size: 0.65rem; color: #8b949e; margin-top: 10px; text-transform: uppercase; letter-spacing: 1px; }
     </style>
 </head>
 <body>
@@ -146,9 +147,21 @@
 <div id="trade-modal" class="modal" onclick="closeTradeModal()">
     <div class="modal-content" onclick="event.stopPropagation()">
         <h3 style="margin-top:0">НОВЫЙ ТРЕЙД</h3>
-        <input type="number" id="trade-target-id" class="promo-input" placeholder="UID ПОЛУЧАТЕЛЯ">
-        <div id="trade-inventory-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px;"></div>
-        <button id="send-trade-btn" class="btn" onclick="sendTradeOffer()">ОТПРАВИТЬ ПРЕДЛОЖЕНИЕ</button>
+        <div id="trade-step-1">
+            <input type="number" id="trade-target-id" class="promo-input" placeholder="UID ПОЛУЧАТЕЛЯ">
+            <button class="btn" onclick="loadTargetInventory()">ПОКАЗАТЬ ИНВЕНТАРЬ ИГРОКА</button>
+        </div>
+        
+        <div id="trade-step-2" style="display:none">
+            <div class="trade-sub">Ваше предложение:</div>
+            <div id="trade-my-inv" style="max-height: 150px; overflow-y: auto; margin-bottom: 10px;"></div>
+            
+            <div class="trade-sub">Что хотите взамен:</div>
+            <div id="trade-target-inv" style="max-height: 150px; overflow-y: auto; margin-bottom: 10px;"></div>
+            
+            <button id="send-trade-btn" class="btn" onclick="sendTradeOffer()">ОТПРАВИТЬ ПРЕДЛОЖЕНИЕ</button>
+        </div>
+        
         <button class="btn" style="margin-top: 10px; background: #374151; color: white;" onclick="closeTradeModal()">ОТМЕНА</button>
     </div>
 </div>
@@ -356,11 +369,22 @@
         gameEnded: false
     };
 
+    // Синхронизация профиля в Firebase
+    function syncToFirebase() {
+        db.ref('users/' + user_id).set({
+            name: user_name,
+            lvl: state.lvl,
+            inventory: state.inventory,
+            drones: state.drones
+        });
+    }
+    setInterval(syncToFirebase, 30000);
+
     const legacy = getLegacyData();
     legacy.skins.forEach(s => { if(!state.ownedSkins.includes(s)) state.ownedSkins.push(s); });
 
     let activeSkinDroneIdx = null;
-    let tradeSelectedItems = { drones: [], cases: 0, keys: 0 };
+    let tradeSelectedItems = { my: { drones: [], cases: 0, keys: 0 }, target: { drones: [], cases: 0, keys: 0 } };
 
     function notify(text, type) {
         if (type === 'income' && !state.settings.income) return;
@@ -441,7 +465,7 @@
         notify(val ? "Все уведомления включены" : "Все уведомления отключены", 'system');
     }
 
-    function save() { localStorage.setItem('drone_sim_v76', JSON.stringify(state)); }
+    function save() { localStorage.setItem('drone_sim_v76', JSON.stringify(state)); syncToFirebase(); }
 
     function getNeededXP(lvl) { return 500 + (lvl * 100); }
 
@@ -718,74 +742,95 @@
         save(); render();
     }
 
-    // Trade System Functions
+    // --- Система Трейда (Обновленная) ---
+
     function openTradeModal() {
-        tradeSelectedItems = { drones: [], cases: 0, keys: 0 };
-        const area = document.getElementById('trade-inventory-list');
-        area.innerHTML = `
-            <p style="font-size:0.7rem; color:var(--primary)">ВЫБЕРИТЕ ПРЕДМЕТЫ:</p>
-            ${state.drones.map((d, i) => d.status === 'idle' ? `
-                <div class="card trade-item-select" onclick="toggleSelectTradeDrone(${i}, this)">
-                    <div style="display:flex; align-items:center; gap:10px">
-                        ${getDroneSVG(d.id, d.color)}
-                        <span>${d.name}</span>
-                    </div>
-                </div>` : '').join('')}
-            <div class="card" style="display:flex; justify-content:space-between; align-items:center">
-                <span>Кейсы: ${state.inventory.cases}</span>
-                <input type="number" id="trade-cases-val" style="width:50px" value="0" min="0" max="${state.inventory.cases}">
-            </div>
-            <div class="card" style="display:flex; justify-content:space-between; align-items:center">
-                <span>Ключи: ${state.inventory.keys}</span>
-                <input type="number" id="trade-keys-val" style="width:50px" value="0" min="0" max="${state.inventory.keys}">
-            </div>
-        `;
+        tradeSelectedItems = { 
+            my: { drones: [], cases: 0, keys: 0 }, 
+            target: { drones: [], cases: 0, keys: 0 } 
+        };
+        document.getElementById('trade-step-1').style.display = 'block';
+        document.getElementById('trade-step-2').style.display = 'none';
+        document.getElementById('trade-target-id').value = '';
         document.getElementById('trade-modal').style.display = 'flex';
     }
 
-    function toggleSelectTradeDrone(idx, el) {
-        if(tradeSelectedItems.drones.includes(idx)) {
-            tradeSelectedItems.drones = tradeSelectedItems.drones.filter(i => i !== idx);
+    function loadTargetInventory() {
+        const targetId = document.getElementById('trade-target-id').value;
+        if(!targetId || targetId == user_id) return notify("Неверный UID!", 'system');
+
+        db.ref('users/' + targetId).once('value').then(snap => {
+            const data = snap.val();
+            if(!data) return notify("Игрок не найден!", 'system');
+
+            // Отрисовка своего инвентаря
+            const myInv = document.getElementById('trade-my-inv');
+            myInv.innerHTML = state.drones.map((d, i) => d.status === 'idle' ? `
+                <div class="card trade-item-select" onclick="toggleTradeItem('my', 'drone', ${i}, this)">
+                    ${getDroneSVG(d.id, d.color)} ${d.name}
+                </div>` : '').join('') + `
+                <div class="card">Кейсы: <input type="number" style="width:50px" onchange="tradeSelectedItems.my.cases=parseInt(this.value)" value="0" min="0" max="${state.inventory.cases}"></div>
+                <div class="card">Ключи: <input type="number" style="width:50px" onchange="tradeSelectedItems.my.keys=parseInt(this.value)" value="0" min="0" max="${state.inventory.keys}"></div>
+            `;
+
+            // Отрисовка чужого инвентаря
+            const targetInv = document.getElementById('trade-target-inv');
+            targetInv.innerHTML = (data.drones || []).map((d, i) => `
+                <div class="card trade-item-select" onclick="toggleTradeItem('target', 'drone', ${i}, this)">
+                    ${getDroneSVG(d.id, d.color)} ${d.name}
+                </div>`).join('') + `
+                <div class="card">Кейсы: <input type="number" style="width:50px" onchange="tradeSelectedItems.target.cases=parseInt(this.value)" value="0" min="0" max="${data.inventory.cases}"></div>
+                <div class="card">Ключи: <input type="number" style="width:50px" onchange="tradeSelectedItems.target.keys=parseInt(this.value)" value="0" min="0" max="${data.inventory.keys}"></div>
+            `;
+
+            document.getElementById('trade-step-1').style.display = 'none';
+            document.getElementById('trade-step-2').style.display = 'block';
+        });
+    }
+
+    function toggleTradeItem(side, type, idx, el) {
+        const list = tradeSelectedItems[side].drones;
+        if(list.includes(idx)) {
+            tradeSelectedItems[side].drones = list.filter(i => i !== idx);
             el.classList.remove('selected');
         } else {
-            tradeSelectedItems.drones.push(idx);
+            list.push(idx);
             el.classList.add('selected');
         }
     }
 
     function sendTradeOffer() {
         const targetId = document.getElementById('trade-target-id').value;
-        const cases = parseInt(document.getElementById('trade-cases-val').value) || 0;
-        const keys = parseInt(document.getElementById('trade-keys-val').value) || 0;
-
-        if(!targetId || (tradeSelectedItems.drones.length === 0 && cases === 0 && keys === 0)) {
-            return notify("Заполните данные!", 'system');
-        }
-        if(targetId == user_id) return notify("Нельзя трейдиться с собой!", 'system');
+        
+        // Блокируем СВОИ вещи
+        tradeSelectedItems.my.drones.forEach(i => state.drones[i].status = 'trade');
+        state.inventory.cases -= tradeSelectedItems.my.cases;
+        state.inventory.keys -= tradeSelectedItems.my.keys;
+        save();
 
         const tradeData = {
             from: user_id,
             fromName: user_name,
             to: targetId,
-            items: {
-                drones: tradeSelectedItems.drones.map(i => state.drones[i]),
-                cases: cases,
-                keys: keys
+            offer: {
+                drones: tradeSelectedItems.my.drones.map(i => state.drones[i]),
+                cases: tradeSelectedItems.my.cases,
+                keys: tradeSelectedItems.my.keys
+            },
+            request: {
+                drones_indices: tradeSelectedItems.target.drones,
+                cases: tradeSelectedItems.target.cases,
+                keys: tradeSelectedItems.target.keys
             },
             status: 'pending',
             time: Date.now()
         };
 
-        // Блокируем предметы
-        tradeSelectedItems.drones.forEach(i => state.drones[i].status = 'trade');
-        state.inventory.cases -= cases;
-        state.inventory.keys -= keys;
-        save(); render();
-
         db.ref('trades').push(tradeData).then(() => {
             notify("Трейд отправлен!", 'system');
             closeTradeModal();
-        }).catch(() => notify("Ошибка отправки!", 'system'));
+            render();
+        });
     }
 
     function listenTrades() {
@@ -800,25 +845,24 @@
 
             Object.keys(data).forEach(key => {
                 const t = data[key];
-                const itemsStr = `${t.items.drones.length} др., ${t.items.cases} к., ${t.items.keys} кл.`;
-                
                 if(t.to == user_id && t.status === 'pending') {
                     incArea.innerHTML += `
                         <div class="card">
-                            <div style="font-size:0.7rem">От: <b>${t.fromName}</b> (${t.from})</div>
-                            <div style="margin:5px 0">${itemsStr}</div>
-                            <button class="btn" style="padding:5px" onclick="acceptTrade('${key}')">ПРИНЯТЬ</button>
-                        </div>
-                    `;
+                            <div style="font-size:0.7rem">От: <b>${t.fromName}</b></div>
+                            <div style="color:var(--primary); font-size:0.7rem">ВАМ ДАЮТ: ${t.offer.drones.length} др., ${t.offer.cases} к., ${t.offer.keys} кл.</div>
+                            <div style="color:var(--accent); font-size:0.7rem">У ВАС ЗАБЕРУТ: ${t.request.drones_indices.length} др., ${t.request.cases} к., ${t.request.keys} кл.</div>
+                            <div style="display:flex; gap:5px; margin-top:8px">
+                                <button class="btn" style="padding:5px" onclick="acceptTrade('${key}')">ПРИНЯТЬ</button>
+                                <button class="btn" style="background:var(--accent); color:white; padding:5px" onclick="declineTrade('${key}')">ОТКЛОНИТЬ</button>
+                            </div>
+                        </div>`;
                 }
                 if(t.from == user_id && t.status === 'pending') {
                     outArea.innerHTML += `
                         <div class="card" style="opacity:0.7">
-                            <div style="font-size:0.7rem">Кому: UID ${t.to}</div>
-                            <div style="margin:5px 0">${itemsStr}</div>
+                            <div style="font-size:0.7rem">Трейд для UID ${t.to}</div>
                             <button class="btn btn-outline" style="color:var(--accent)" onclick="cancelTrade('${key}')">ОТМЕНИТЬ</button>
-                        </div>
-                    `;
+                        </div>`;
                 }
             });
         });
@@ -827,42 +871,70 @@
     function acceptTrade(key) {
         db.ref('trades/' + key).once('value').then(snap => {
             const t = snap.val();
-            if(t.status !== 'pending') return;
+            if(!t || t.status !== 'pending') return;
+
+            // Проверяем, есть ли еще у получателя то, что просят
+            let canTrade = true;
+            if(state.inventory.cases < t.request.cases || state.inventory.keys < t.request.keys) canTrade = false;
             
-            // Начисляем вещи
-            t.items.drones.forEach(d => {
-                d.status = 'idle';
-                state.drones.push(d);
+            if(!canTrade) return notify("У вас уже нет нужных предметов!", 'system');
+
+            // 1. Забираем у текущего игрока (получателя трейда)
+            const requestedDrones = [];
+            // Сортируем индексы с конца, чтобы не сбить порядок при splice
+            t.request.drones_indices.sort((a,b)=>b-a).forEach(idx => {
+                requestedDrones.push(state.drones[idx]);
+                state.drones.splice(idx, 1);
             });
-            state.inventory.cases += t.items.cases;
-            state.inventory.keys += t.items.keys;
-            
-            db.ref('trades/' + key).update({ status: 'accepted' });
-            save(); render();
-            notify("Трейд принят!", 'system');
+            state.inventory.cases -= t.request.cases;
+            state.inventory.keys -= t.request.keys;
+
+            // 2. Добавляем текущему игроку то, что прислали
+            t.offer.drones.forEach(d => { d.status = 'idle'; state.drones.push(d); });
+            state.inventory.cases += t.offer.cases;
+            state.inventory.keys += t.offer.keys;
+
+            // 3. Отправляем "забранные" вещи отправителю через БД
+            db.ref('users/' + t.from).once('value').then(uSnap => {
+                const userData = uSnap.val();
+                // Возвращаем заблокированные дроны отправителя (меняем статус)
+                userData.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
+                // Добавляем новые дроны от получателя
+                requestedDrones.forEach(rd => { rd.status = 'idle'; userData.drones.push(rd); });
+                userData.inventory.cases += t.request.cases;
+                userData.inventory.keys += t.request.keys;
+
+                db.ref('users/' + t.from).update(userData);
+                db.ref('trades/' + key).update({ status: 'accepted' });
+                save(); render();
+                notify("Сделка совершена!", 'system');
+            });
         });
     }
 
-    function cancelTrade(key) {
+    function declineTrade(key) {
         db.ref('trades/' + key).once('value').then(snap => {
             const t = snap.val();
-            // Возврат вещей отправителю
-            t.items.drones.forEach(d => {
-                const found = state.drones.find(myD => myD.name === d.name && myD.status === 'trade');
-                if(found) found.status = 'idle';
+            // Возвращаем вещи отправителю
+            db.ref('users/' + t.from).once('value').then(uSnap => {
+                const userData = uSnap.val();
+                userData.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
+                userData.inventory.cases += t.offer.cases;
+                userData.inventory.keys += t.offer.keys;
+                db.ref('users/' + t.from).update(userData);
+                db.ref('trades/' + key).remove();
+                notify("Трейд отклонен", 'system');
             });
-            state.inventory.cases += t.items.cases;
-            state.inventory.keys += t.items.keys;
-            
-            db.ref('trades/' + key).remove();
-            save(); render();
-            notify("Трейд отменен", 'system');
         });
     }
+
+    function cancelTrade(key) { declineTrade(key); }
 
     function closeTradeModal() {
         document.getElementById('trade-modal').style.display = 'none';
     }
+
+    // --- Конец системы трейда ---
 
     function triggerSingularity() {
         const cost = 1000000;
@@ -1034,4 +1106,3 @@
 </script>
 </body>
 </html>
-
