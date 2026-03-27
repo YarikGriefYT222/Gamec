@@ -83,7 +83,7 @@
         .promo-input { background: #0d1117; border: 1px solid #374151; color: white; padding: 10px; border-radius: 8px; width: 100%; box-sizing: border-box; margin-bottom: 10px; font-family: monospace; text-transform: uppercase; }
 
         /* Trade UI */
-        .trade-badge { background: var(--accent); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.6rem; position: absolute; top: 5px; right: 5px; }
+        .trade-badge { background: var(--accent); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.6rem; position: absolute; top: 5px; right: 5px; z-index: 10; }
         .trade-item-select { cursor: pointer; border: 2px solid transparent; }
         .trade-item-select.selected { border-color: var(--primary); background: rgba(78, 204, 163, 0.1); }
         .trade-sub { font-size: 0.65rem; color: #8b949e; margin-top: 10px; text-transform: uppercase; letter-spacing: 1px; }
@@ -390,7 +390,7 @@
         if (type === 'income' && !state.settings.income) return;
         if (type === 'lvl' && !state.settings.lvl) return;
         if (type === 'system' && !state.settings.system) return;
-        const isError = text.includes('Не хватает') || text.includes('уже') || text.includes('нет') || text.includes('Неверный') || text.includes('Ошибка');
+        const isError = text.includes('Не хватает') || text.includes('уже') || text.includes('нет') || text.includes('Неверный') || text.includes('Ошибка') || text.includes('не найден');
         const t = document.createElement('div'); 
         t.className = 'toast' + (isError ? ' error' : ''); 
         t.innerText = text;
@@ -495,6 +495,7 @@
 
     function chargeDrone(idx) {
         let d = state.drones[idx];
+        if (d.status === 'trade') return notify("Дрон в трейде!", 'system');
         if (d.battery >= 100) return;
         if (state.money >= 50) {
             state.money -= 50; d.battery = 100;
@@ -514,6 +515,7 @@
     }
 
     function openSkinMenu(idx) {
+        if (state.drones[idx].status === 'trade') return notify("Дрон в трейде!", 'system');
         activeSkinDroneIdx = idx;
         const drone = state.drones[idx];
         document.getElementById('skin-modal-title').innerText = `СКИНЫ: ${drone.name}`;
@@ -799,9 +801,15 @@
 
     function sendTradeOffer() {
         const targetId = document.getElementById('trade-target-id').value;
-        tradeSelectedItems.my.drones.forEach(i => state.drones[i].status = 'trade');
-        state.inventory.cases -= tradeSelectedItems.my.cases;
-        state.inventory.keys -= tradeSelectedItems.my.keys;
+        const myDronesToTrade = tradeSelectedItems.my.drones;
+        const cCount = tradeSelectedItems.my.cases || 0;
+        const kCount = tradeSelectedItems.my.keys || 0;
+
+        // Помечаем дронов статусом
+        myDronesToTrade.forEach(i => state.drones[i].status = 'trade');
+        // Забираем кейсы/ключи сразу (чтобы нельзя было потратить)
+        state.inventory.cases -= cCount;
+        state.inventory.keys -= kCount;
         save();
 
         const tradeData = {
@@ -809,14 +817,14 @@
             fromName: user_name,
             to: targetId,
             offer: {
-                drones: tradeSelectedItems.my.drones.map(i => state.drones[i]),
-                cases: tradeSelectedItems.my.cases,
-                keys: tradeSelectedItems.my.keys
+                drones: myDronesToTrade.map(i => state.drones[i]),
+                cases: cCount,
+                keys: kCount
             },
             request: {
                 drones_indices: tradeSelectedItems.target.drones,
-                cases: tradeSelectedItems.target.cases,
-                keys: tradeSelectedItems.target.keys
+                cases: tradeSelectedItems.target.cases || 0,
+                keys: tradeSelectedItems.target.keys || 0
             },
             status: 'pending',
             time: Date.now()
@@ -834,6 +842,8 @@
             const data = snap.val();
             const incArea = document.getElementById('incoming-trades');
             const outArea = document.getElementById('outgoing-trades');
+            if(!incArea || !outArea) return;
+
             incArea.innerHTML = '<h4>ВХОДЯЩИЕ</h4>';
             outArea.innerHTML = '<h4>ИСХОДЯЩИЕ</h4>';
 
@@ -868,27 +878,49 @@
         db.ref('trades/' + key).once('value').then(snap => {
             const t = snap.val();
             if(!t || t.status !== 'pending') return;
-            let canTrade = true;
-            if(state.inventory.cases < t.request.cases || state.inventory.keys < t.request.keys) canTrade = false;
-            if(!canTrade) return notify("У вас уже нет нужных предметов!", 'system');
+
+            // Проверка наличия у текущего пользователя предметов
+            if(state.inventory.cases < t.request.cases || state.inventory.keys < t.request.keys) {
+                return notify("У вас уже нет нужных предметов!", 'system');
+            }
+
+            // Проверка дронов у текущего пользователя
             const requestedDrones = [];
+            let allDronesOk = true;
+            t.request.drones_indices.forEach(idx => {
+                if(!state.drones[idx] || state.drones[idx].status !== 'idle') allDronesOk = false;
+            });
+
+            if(!allDronesOk) return notify("Ваши дроны заняты или отсутствуют!", 'system');
+
+            // Выполнение обмена для текущего пользователя
             t.request.drones_indices.sort((a,b)=>b-a).forEach(idx => {
                 requestedDrones.push(state.drones[idx]);
                 state.drones.splice(idx, 1);
             });
             state.inventory.cases -= t.request.cases;
             state.inventory.keys -= t.request.keys;
+
             t.offer.drones.forEach(d => { d.status = 'idle'; state.drones.push(d); });
             state.inventory.cases += t.offer.cases;
             state.inventory.keys += t.offer.keys;
+
+            // Обновление другого пользователя в БД
             db.ref('users/' + t.from).once('value').then(uSnap => {
                 const userData = uSnap.val();
-                userData.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
+                if(!userData) return;
+
+                // Удаляем дронов, которые были в статусе trade у отправителя
+                userData.drones = userData.drones.filter(d => d.status !== 'trade');
+                // Добавляем новых дронов отправителю
                 requestedDrones.forEach(rd => { rd.status = 'idle'; userData.drones.push(rd); });
+                
                 userData.inventory.cases += t.request.cases;
                 userData.inventory.keys += t.request.keys;
+
                 db.ref('users/' + t.from).update(userData);
                 db.ref('trades/' + key).update({ status: 'accepted' });
+                
                 save(); render();
                 notify("Сделка совершена!", 'system');
             });
@@ -898,15 +930,30 @@
     function declineTrade(key) {
         db.ref('trades/' + key).once('value').then(snap => {
             const t = snap.val();
-            db.ref('users/' + t.from).once('value').then(uSnap => {
-                const userData = uSnap.val();
-                userData.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
-                userData.inventory.cases += t.offer.cases;
-                userData.inventory.keys += t.offer.keys;
-                db.ref('users/' + t.from).update(userData);
+            if(!t) return;
+
+            if(t.from == user_id) {
+                // Если отменяет сам отправитель
+                state.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
+                state.inventory.cases += t.offer.cases;
+                state.inventory.keys += t.offer.keys;
                 db.ref('trades/' + key).remove();
-                notify("Трейд отклонен", 'system');
-            });
+                save(); render();
+                notify("Трейд отменен, вещи вернулись", 'system');
+            } else {
+                // Если отклоняет получатель - возвращаем вещи отправителю через БД
+                db.ref('users/' + t.from).once('value').then(uSnap => {
+                    const userData = uSnap.val();
+                    if(userData) {
+                        userData.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
+                        userData.inventory.cases += t.offer.cases;
+                        userData.inventory.keys += t.offer.keys;
+                        db.ref('users/' + t.from).update(userData);
+                    }
+                    db.ref('trades/' + key).remove();
+                    notify("Трейд отклонен", 'system');
+                });
+            }
         });
     }
 
@@ -956,7 +1003,7 @@
             navCustom.querySelector('.lock-icon').style.display = 'none';
         }
 
-        const activeLocs = state.drones.filter(d => d.status !== 'trade').map(d => d.loc);
+        const activeLocs = state.drones.filter(d => d.status === 'idle').map(d => d.loc);
         document.getElementById('orders-area').innerHTML = DRONES_DB.filter(d => activeLocs.includes(d.loc)).map((d, i) => {
             let reward = (i + 1) * 120;
             let cost = 10 + (i * 3);
@@ -985,7 +1032,6 @@
             </div>
         `).join('');
 
-        // Исправлено: добавление отрисовки кейсов в Ангаре
         document.getElementById('cases-area').innerHTML = `
             <div class="card">
                 <div style="display:flex; align-items:center; gap:15px"><div class="item-preview">${getCaseSVG()}</div><div style="flex-grow:1"><b>Базовый кейс</b><br><small>В наличии: ${state.inventory.cases}</small></div></div>
