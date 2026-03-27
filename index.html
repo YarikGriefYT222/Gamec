@@ -87,7 +87,7 @@
         .trade-item-select { cursor: pointer; border: 2px solid transparent; }
         .trade-item-select.selected { border-color: var(--primary); background: rgba(78, 204, 163, 0.1); }
         .trade-sub { font-size: 0.65rem; color: #8b949e; margin-top: 10px; text-transform: uppercase; letter-spacing: 1px; }
-        .trade-mini-icon { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
+        .trade-flex-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
     </style>
 </head>
 <body>
@@ -260,6 +260,7 @@
 </nav>
 
 <script>
+    // Firebase Init
     const firebaseConfig = {
         apiKey: "AIzaSyA-tvZ6EUAD_QqmPlpBzXJDyr3ra_VQ-Ws",
         authDomain: "ruminenewsbot.firebaseapp.com",
@@ -273,6 +274,7 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
+    // Telegram Data
     const tg = window.Telegram.WebApp;
     const user_id = tg.initDataUnsafe?.user?.id || 99999;
     const user_name = tg.initDataUnsafe?.user?.username || "Guest";
@@ -692,21 +694,21 @@
         if(type === 'trades') listenTrades();
     }
 
-    function getCaseSVG(final = false, elite = false, size = 40) {
+    function getCaseSVG(final = false, elite = false) {
         let color = "#45b7d1";
         if (final) color = "#ffd700";
         if (elite) color = "#bf40bf";
-        return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><path d="M4,6 L20,6 L20,18 L4,18 Z" fill="#2c3e50" stroke="${color}" stroke-width="1.5"/><path d="M4,6 L12,12 L20,6" fill="none" stroke="${color}" stroke-width="1.5"/><rect x="10" y="10" width="4" height="4" rx="1" fill="${color}"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="40" height="40"><path d="M4,6 L20,6 L20,18 L4,18 Z" fill="#2c3e50" stroke="${color}" stroke-width="1.5"/><path d="M4,6 L12,12 L20,6" fill="none" stroke="${color}" stroke-width="1.5"/><rect x="10" y="10" width="4" height="4" rx="1" fill="${color}"/></svg>`;
     }
 
-    function getKeySVG(elite = false, size = 40) {
+    function getKeySVG(elite = false) {
         const color = elite ? "#bf40bf" : "#45b7d1";
-        return `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><circle cx="7" cy="12" r="4" fill="none" stroke="${color}" stroke-width="2"/><path d="M11,12 L20,12 M17,12 L17,15 M20,12 L20,15" stroke="${color}" stroke-width="2" stroke-linecap="round"/></svg>`;
+        return `<svg viewBox="0 0 24 24" width="40" height="40"><circle cx="7" cy="12" r="4" fill="none" stroke="${color}" stroke-width="2"/><path d="M11,12 L20,12 M17,12 L17,15 M20,12 L20,15" stroke="${color}" stroke-width="2" stroke-linecap="round"/></svg>`;
     }
 
-    function getDroneSVG(id, color, size = 40) {
+    function getDroneSVG(id, color) {
         const path = DRONE_SHAPES[id] || DRONE_SHAPES['d1'];
-        return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="filter: drop-shadow(0 0 4px ${color})"><path d="${path}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+        return `<svg width="40" height="40" viewBox="0 0 24 24" style="filter: drop-shadow(0 0 4px ${color})"><path d="${path}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
     }
 
     function buyDrone(id, custom = false) {
@@ -768,13 +770,13 @@
                 <div class="card trade-item-select" onclick="toggleTradeItem('my', 'drone', ${i}, this)">
                     ${getDroneSVG(d.id, d.color)} ${d.name}
                 </div>` : '').join('') + `
-                <div class="card" style="display:flex; align-items:center; gap:10px">
-                    <div class="trade-mini-icon">${getCaseSVG(false, false, 25)}</div>
-                    Кейсы: <input type="number" style="width:60px" onchange="tradeSelectedItems.my.cases=parseInt(this.value)" value="0" min="0" max="${state.inventory.cases}">
+                <div class="card trade-flex-row">
+                   <div style="display:flex; align-items:center; gap:10px">${getCaseSVG()} Кейсы:</div>
+                   <input type="number" style="width:60px" onchange="tradeSelectedItems.my.cases=parseInt(this.value)" value="0" min="0" max="${state.inventory.cases}">
                 </div>
-                <div class="card" style="display:flex; align-items:center; gap:10px">
-                    <div class="trade-mini-icon">${getKeySVG(false, 25)}</div>
-                    Ключи: <input type="number" style="width:60px" onchange="tradeSelectedItems.my.keys=parseInt(this.value)" value="0" min="0" max="${state.inventory.keys}">
+                <div class="card trade-flex-row">
+                   <div style="display:flex; align-items:center; gap:10px">${getKeySVG()} Ключи:</div>
+                   <input type="number" style="width:60px" onchange="tradeSelectedItems.my.keys=parseInt(this.value)" value="0" min="0" max="${state.inventory.keys}">
                 </div>
             `;
 
@@ -783,13 +785,13 @@
                 <div class="card trade-item-select" onclick="toggleTradeItem('target', 'drone', ${i}, this)">
                     ${getDroneSVG(d.id, d.color)} ${d.name}
                 </div>`).join('') + `
-                <div class="card" style="display:flex; align-items:center; gap:10px">
-                    <div class="trade-mini-icon">${getCaseSVG(false, false, 25)}</div>
-                    Кейсы: <input type="number" style="width:60px" onchange="tradeSelectedItems.target.cases=parseInt(this.value)" value="0" min="0" max="${data.inventory.cases}">
+                <div class="card trade-flex-row">
+                   <div style="display:flex; align-items:center; gap:10px">${getCaseSVG()} Кейсы:</div>
+                   <input type="number" style="width:60px" onchange="tradeSelectedItems.target.cases=parseInt(this.value)" value="0" min="0" max="${data.inventory.cases}">
                 </div>
-                <div class="card" style="display:flex; align-items:center; gap:10px">
-                    <div class="trade-mini-icon">${getKeySVG(false, 25)}</div>
-                    Ключи: <input type="number" style="width:60px" onchange="tradeSelectedItems.target.keys=parseInt(this.value)" value="0" min="0" max="${data.inventory.keys}">
+                <div class="card trade-flex-row">
+                   <div style="display:flex; align-items:center; gap:10px">${getKeySVG()} Ключи:</div>
+                   <input type="number" style="width:60px" onchange="tradeSelectedItems.target.keys=parseInt(this.value)" value="0" min="0" max="${data.inventory.keys}">
                 </div>
             `;
 
@@ -815,12 +817,14 @@
         const cCount = tradeSelectedItems.my.cases || 0;
         const kCount = tradeSelectedItems.my.keys || 0;
 
-        if(myDronesToTrade.length === 0 && cCount === 0 && kCount === 0) return notify("Трейд пуст!", "system");
+        if (cCount > state.inventory.cases || kCount > state.inventory.keys) return notify("Недостаточно ресурсов!", 'system');
 
+        // Помечаем дронов статусом
         myDronesToTrade.forEach(i => state.drones[i].status = 'trade');
+        // Списываем кейсы/ключи сразу
         state.inventory.cases -= cCount;
         state.inventory.keys -= kCount;
-        save();
+        save(); render();
 
         const tradeData = {
             from: user_id,
@@ -843,7 +847,6 @@
         db.ref('trades').push(tradeData).then(() => {
             notify("Трейд отправлен!", 'system');
             closeTradeModal();
-            render();
         });
     }
 
@@ -890,16 +893,16 @@
             if(!t || t.status !== 'pending') return;
 
             if(state.inventory.cases < t.request.cases || state.inventory.keys < t.request.keys) {
-                return notify("У вас уже нет нужных предметов!", 'system');
+                return notify("У вас недостаточно предметов!", 'system');
             }
 
             let allDronesOk = true;
             t.request.drones_indices.forEach(idx => {
                 if(!state.drones[idx] || state.drones[idx].status !== 'idle') allDronesOk = false;
             });
-
             if(!allDronesOk) return notify("Ваши дроны заняты!", 'system');
 
+            // Забираем у получателя (текущий юзер)
             const requestedDrones = [];
             t.request.drones_indices.sort((a,b)=>b-a).forEach(idx => {
                 requestedDrones.push(state.drones[idx]);
@@ -908,23 +911,26 @@
             state.inventory.cases -= t.request.cases;
             state.inventory.keys -= t.request.keys;
 
+            // Отдаем получателю то, что прислали
             t.offer.drones.forEach(d => { d.status = 'idle'; state.drones.push(d); });
             state.inventory.cases += t.offer.cases;
             state.inventory.keys += t.offer.keys;
 
+            // Обновляем отправителя в Firebase
             db.ref('users/' + t.from).once('value').then(uSnap => {
                 const userData = uSnap.val();
-                if(!userData) return;
-
-                userData.drones = (userData.drones || []).filter(d => d.status !== 'trade');
-                requestedDrones.forEach(rd => { rd.status = 'idle'; userData.drones.push(rd); });
-                
-                userData.inventory.cases = (userData.inventory.cases || 0) + t.request.cases;
-                userData.inventory.keys = (userData.inventory.keys || 0) + t.request.keys;
-
-                db.ref('users/' + t.from).update(userData);
+                if(userData) {
+                    // Убираем у него дронов, помеченных 'trade'
+                    userData.drones = userData.drones.filter(d => d.status !== 'trade');
+                    // Даем ему новых дронов
+                    requestedDrones.forEach(rd => { rd.status = 'idle'; userData.drones.push(rd); });
+                    // Даем ему кейсы/ключи
+                    userData.inventory.cases += t.request.cases;
+                    userData.inventory.keys += t.request.keys;
+                    db.ref('users/' + t.from).set(userData);
+                }
+                // Удаляем трейд полностью
                 db.ref('trades/' + key).remove();
-                
                 save(); render();
                 notify("Сделка совершена!", 'system');
             });
@@ -937,20 +943,22 @@
             if(!t) return;
 
             if(t.from == user_id) {
+                // Возврат вещей самому себе
                 state.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
                 state.inventory.cases += t.offer.cases;
                 state.inventory.keys += t.offer.keys;
                 db.ref('trades/' + key).remove();
                 save(); render();
-                notify("Трейд отменен", 'system');
+                notify("Предложение отозвано", 'system');
             } else {
+                // Возврат вещей отправителю через Firebase
                 db.ref('users/' + t.from).once('value').then(uSnap => {
                     const userData = uSnap.val();
                     if(userData) {
                         userData.drones.forEach(d => { if(d.status === 'trade') d.status = 'idle'; });
-                        userData.inventory.cases = (userData.inventory.cases || 0) + t.offer.cases;
-                        userData.inventory.keys = (userData.inventory.keys || 0) + t.offer.keys;
-                        db.ref('users/' + t.from).update(userData);
+                        userData.inventory.cases += t.offer.cases;
+                        userData.inventory.keys += t.offer.keys;
+                        db.ref('users/' + t.from).set(userData);
                     }
                     db.ref('trades/' + key).remove();
                     notify("Трейд отклонен", 'system');
